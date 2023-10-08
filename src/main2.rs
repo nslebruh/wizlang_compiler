@@ -1,7 +1,7 @@
 use std::fmt::Display;
-use std::ops::{RangeBounds, Deref, DerefMut, AddAssign, Add};
+use std::ops::{Deref, DerefMut, Add};
 use std::slice::SliceIndex;
-use std::collections::{VecDeque, HashMap};
+use std::collections::HashMap;
 
 #[derive(Debug, Hash, Clone)]
 pub enum Type {
@@ -31,8 +31,14 @@ impl Value {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Identifier(String);
+
+impl Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Span {
@@ -167,9 +173,9 @@ impl ParseBuffer {
     }
   }
   pub fn get_next(&mut self) -> Option<(Token, TokenType)> {
-    if self.inner.get(self.index).is_some() {
+    if let Some(x) = self.inner.get(self.index) {
       self.index += 1;
-      Some((self.inner[self.index - 1].clone(), self.types[self.index - 1].clone())) 
+      Some((x.clone(), x.ty)) 
     } else {
       None
     }
@@ -212,6 +218,121 @@ impl ParseBuffer {
   
   pub fn is_next(&self) -> bool {
     self.types.get(self.index).is_some()
+  }
+
+  pub fn operator_pass(&mut self) -> Result<(), String> {
+    if !self.types.contains(&TokenType::Be) {
+      return Ok(())
+    }
+    let mut new_buffer: Vec<Token> = Vec::new();
+    let mut idx = 0;
+    println!("len: {}", self.len());
+    while idx < self.len() {
+      println!("idx: {}", idx);
+      let (token, token_type) = self.get_next().unwrap();
+      if token_type == TokenType::Be {
+        match self.get_next() {
+          Some((equal_token, TokenType::Equal)) => {
+            match self.get_next() {
+              Some((to_token, TokenType::To)) => {
+                new_buffer.push(Token::new(TokenType::Operator, token.span + equal_token.span + to_token.span, Some(Value::Operator(Operator::Eq))));
+                idx += 3;
+              },
+              Some((token, token_type)) => return Err(format!("expected to at {} and found {:?}", token.span, token_type)),
+              None => return Err("unexpected end of input".to_string())
+            }
+          },
+          Some((unequal_token, TokenType::Unequal)) => {
+            match self.get_next() {
+              Some((to_token, TokenType::To)) => {
+                new_buffer.push(Token::new(TokenType::Operator, token.span + unequal_token.span + to_token.span, Some(Value::Operator(Operator::Ne))));
+                idx += 3;
+              },
+              Some((token, token_type)) => return Err(format!("expected to at {} and found {:?}", token.span, token_type)),
+              None => return Err("unexpected end of input".to_string())
+            }
+          },
+          Some((greater_token, TokenType::Greater)) => {
+            match self.get_next() {
+              Some((than_token, TokenType::Than)) => {
+                match self.peek_type() {
+                  Some(TokenType::Or) => {
+                    let or_token = self.get_next().unwrap();
+                    match self.get_next() {
+                      Some((equal_token, TokenType::Equal)) => {
+                        match self.get_next() {
+                          Some((to_token, TokenType::To)) => {
+                            new_buffer.push(Token::new(TokenType::Operator, token.span + greater_token.span + than_token.span + or_token.0.span + equal_token.span + to_token.span, Some(Value::Operator(Operator::Ge))));
+                            idx += 6;
+                          },
+                          Some((token, token_type)) => return Err(format!("expected to at {} and found {:?}", token.span, token_type)),
+                          None => return Err("unexpected end of input".to_string())
+                        }
+                      },
+                      Some((token, token_type)) => return Err(format!("expected equal at {} and found {:?}", token.span, token_type)),
+                      None => return Err("unexpected end of input".to_string())
+                    }
+                  },
+                  Some(_) => {
+                    new_buffer.push(Token::new(TokenType::Operator, token.span + greater_token.span + than_token.span, Some(Value::Operator(Operator::Gt))));
+                    idx += 3;
+                  },
+                  None => return Err("unexpected end of input".to_string())
+                }
+              }
+              Some((token, token_type)) => return Err(format!("expected than at {} and found {:?}", token.span, token_type)),
+              None => return Err("unexpected end of input".to_string())
+            }
+          },
+          Some((less_token, TokenType::Less)) => {
+            match self.get_next() {
+              Some((than_token, TokenType::Than)) => {
+               match self.peek_type() {
+                Some(TokenType::Or) => {
+                  let or_token = self.get_next().unwrap();
+                  match self.get_next() {
+                    Some((equal_token, TokenType::Equal)) => {
+                      match self.get_next() {
+                        Some((to_token, TokenType::To)) => {
+                          new_buffer.push(Token::new(TokenType::Operator, token.span + less_token.span + than_token.span + or_token.0.span + equal_token.span + to_token.span, Some(Value::Operator(Operator::Le))));
+                            idx += 6;
+                        },
+                        Some((token, token_type)) => return Err(format!("expected to at {} and found {:?}", token.span, token_type)),
+                        None => return Err("unexpected end of input".to_string())
+                      }
+                    },
+                    Some((token, token_type)) => return Err(format!("expected equal at {} and found {:?}", token.span, token_type)),
+                    None => return Err("unexpected end of input".to_string())
+                  }
+                },
+                Some(_) => {
+                  new_buffer.push(Token::new(TokenType::Operator, token.span + less_token.span + than_token.span, Some(Value::Operator(Operator::Lt))));
+                    idx += 3;
+                }
+                None => return Err("unexpected end of input".to_string())
+               } 
+              },
+              Some((token, token_type)) => return Err(format!("expected than at {} and found {:?}", token.span, token_type)),
+              None => return Err("unexpected end of input".to_string())
+            }
+          },
+          Some((token, token_type)) => {
+            return Err(format!("expected greater, less, equal or unequal at {} and found {:?}", token.span, token_type))
+          },
+          None => {}
+        }
+      } else {
+        new_buffer.push(token);
+        idx += 1;
+      }
+    }
+    self.inner = new_buffer;
+    self.types.clear();
+    self.index = 0;
+    for n in &self.inner {
+      self.types.push(n.ty)
+    }
+    Ok(())
   }
 }
 
@@ -425,7 +546,7 @@ impl Lexer {
 
 pub struct Parser {
   pub buffer: ParseBuffer,
-  pub idents: HashMap<String, Type>,
+  pub idents: HashMap<Identifier, Span>,
   pub statements: Vec<Statement>,
 }
 
@@ -438,137 +559,13 @@ impl Parser {
     }
   }
 
-  pub fn operator_pass(&mut self) -> Result<(), String> {
-    if !self.buffer.types.contains(&TokenType::Be) {
-      return Ok(())
-    }
-    let mut new_buffer: Vec<Token> = Vec::new();
-    let mut idx = 0;
-    println!("len: {}", self.buffer.len());
-    while idx < self.buffer.len() {
-      println!("idx: {}", idx);
-      let (token, token_type) = self.buffer.get_next().unwrap();
-      if token_type == TokenType::Be {
-        match self.buffer.get_next() {
-          Some((equal_token, TokenType::Equal)) => {
-            match self.buffer.get_next() {
-              Some((to_token, TokenType::To)) => {
-                new_buffer.push(Token::new(TokenType::Operator, token.span + equal_token.span + to_token.span, Some(Value::Operator(Operator::Eq))));
-                idx += 3;
-              },
-              Some((token, token_type)) => return Err(format!("expected to at {} and found {:?}", token.span, token_type)),
-              None => return Err("unexpected end of input".to_string())
-            }
-          },
-          Some((unequal_token, TokenType::Unequal)) => {
-            match self.buffer.get_next() {
-              Some((to_token, TokenType::To)) => {
-                new_buffer.push(Token::new(TokenType::Operator, token.span + unequal_token.span + to_token.span, Some(Value::Operator(Operator::Ne))));
-                idx += 3;
-              },
-              Some((token, token_type)) => return Err(format!("expected to at {} and found {:?}", token.span, token_type)),
-              None => return Err("unexpected end of input".to_string())
-            }
-          },
-          Some((greater_token, TokenType::Greater)) => {
-            match self.buffer.get_next() {
-              Some((than_token, TokenType::Than)) => {
-                match self.buffer.peek_type() {
-                  Some(TokenType::Or) => {
-                    let or_token = self.buffer.get_next().unwrap();
-                    match self.buffer.get_next() {
-                      Some((equal_token, TokenType::Equal)) => {
-                        match self.buffer.get_next() {
-                          Some((to_token, TokenType::To)) => {
-                            new_buffer.push(Token::new(TokenType::Operator, token.span + greater_token.span + than_token.span + or_token.0.span + equal_token.span + to_token.span, Some(Value::Operator(Operator::Ge))));
-                            idx += 6;
-                          },
-                          Some((token, token_type)) => return Err(format!("expected to at {} and found {:?}", token.span, token_type)),
-                          None => return Err("unexpected end of input".to_string())
-                        }
-                      },
-                      Some((token, token_type)) => return Err(format!("expected equal at {} and found {:?}", token.span, token_type)),
-                      None => return Err("unexpected end of input".to_string())
-                    }
-                  },
-                  Some(_) => {
-                    new_buffer.push(Token::new(TokenType::Operator, token.span + greater_token.span + than_token.span, Some(Value::Operator(Operator::Gt))));
-                    idx += 3;
-                  },
-                  None => return Err("unexpected end of input".to_string())
-                }
-              }
-              Some((token, token_type)) => return Err(format!("expected than at {} and found {:?}", token.span, token_type)),
-              None => return Err("unexpected end of input".to_string())
-            }
-          },
-          Some((less_token, TokenType::Less)) => {
-            match self.buffer.get_next() {
-              Some((than_token, TokenType::Than)) => {
-               match self.buffer.peek_type() {
-                Some(TokenType::Or) => {
-                  let or_token = self.buffer.get_next().unwrap();
-                  match self.buffer.get_next() {
-                    Some((equal_token, TokenType::Equal)) => {
-                      match self.buffer.get_next() {
-                        Some((to_token, TokenType::To)) => {
-                          new_buffer.push(Token::new(TokenType::Operator, token.span + less_token.span + than_token.span + or_token.0.span + equal_token.span + to_token.span, Some(Value::Operator(Operator::Le))));
-                            idx += 6;
-                        },
-                        Some((token, token_type)) => return Err(format!("expected to at {} and found {:?}", token.span, token_type)),
-                        None => return Err("unexpected end of input".to_string())
-                      }
-                    },
-                    Some((token, token_type)) => return Err(format!("expected equal at {} and found {:?}", token.span, token_type)),
-                    None => return Err("unexpected end of input".to_string())
-                  }
-                },
-                Some(_) => {
-                  new_buffer.push(Token::new(TokenType::Operator, token.span + less_token.span + than_token.span, Some(Value::Operator(Operator::Lt))));
-                    idx += 3;
-                }
-                None => return Err("unexpected end of input".to_string())
-               } 
-              },
-              Some((token, token_type)) => return Err(format!("expected than at {} and found {:?}", token.span, token_type)),
-              None => return Err("unexpected end of input".to_string())
-            }
-          },
-          Some((token, token_type)) => {
-            return Err(format!("expected greater, less, equal or unequal at {} and found {:?}", token.span, token_type))
-          },
-          None => {}
-        }
-      } else {
-        new_buffer.push(token);
-        idx += 1;
-      }
-    }
-    self.buffer.inner = new_buffer;
-    self.buffer.types.clear();
-    self.buffer.index = 0;
-    for n in &self.buffer.inner {
-      self.buffer.types.push(n.ty)
-    }
-    Ok(())
-  }
-
-  fn fix_operator_priority(&mut self) {
-    let mut idx = 0;
-    while idx < self.statements.len() {
-
-    }
-  }
-
   pub fn parse(&mut self) -> Result<(), String> {
-    self.operator_pass()?;
-    println!("new: {:?}", self.buffer.inner);
+    self.buffer.operator_pass()?;
     let mut idx = 0;
     while idx < self.buffer.len() {
       let mut stmt = ParseBuffer::new();
 
       while self.buffer.types[idx] != TokenType::FullStop {
-        println!("parse idx: {}", idx);
         let token = self.buffer.get_next().unwrap();
         stmt.push(token.0);
         stmt.types.push(token.1);
@@ -580,190 +577,193 @@ impl Parser {
         return Err("unexpected end of input".to_string())
       }
 
-      let statement = self.parse_statement(stmt)?;
+      let statement = parse_statement(stmt, &self.idents)?;
       self.statements.push(statement)
     }
     Ok(())
   }
+}
 
-  fn parse_statement(&mut self, mut buffer: ParseBuffer) -> Result<Statement, String> {
-    match buffer[0].ty {
-      TokenType::Assign => {
-        let ident: Identifier;
-        buffer.get_next();
-        if buffer.is_next() {
-          if buffer.peek_type() == Some(&TokenType::Ident) {
-            ident = match buffer.get_next().unwrap().0.value {
-              Some(Value::Ident(i)) => i,
-              x => return Err(format!("error in finding ident value of ident type. found {:?}", x))
-            }
-          } else {
-            let token = buffer.get_next().unwrap();
-            return Err(format!("expected an identifier at {} and found {:?}", token.0.span, token.1))
+pub fn parse_statement(mut buffer: ParseBuffer, idents: &HashMap<Identifier, Span>) -> Result<Statement, String> {
+  match buffer[0].ty {
+    TokenType::Assign => {
+      let ident: Identifier;
+      buffer.get_next();
+      if buffer.is_next() {
+        if buffer.peek_type() == Some(&TokenType::Ident) {
+          ident = match buffer.get_next().unwrap().0.value {
+            Some(Value::Ident(i)) => i,
+            x => return Err(format!("error in finding ident value of ident type. found {:?}", x))
           }
         } else {
-          return Err("unexpected end of input".to_string())
+          let token = buffer.get_next().unwrap();
+          return Err(format!("expected an identifier at {} and found {:?}", token.0.span, token.1))
         }
-        if buffer.is_next() {
-          if buffer.peek_type() == Some(&TokenType::With) {
-            buffer.get_next();
-          } else {
-            let x = buffer.get_next().unwrap();
-            return Err(format!("expected with at {} and found {:?}", x.0.span, x.1))
-          }
-        } else {
-          return Err("unexpected end of input".to_string())
-        }
-        let expr = self.parse_expression(&mut buffer)?;
-        Ok(Statement::Assignment(Assignment(ident, expr)))
-      },
-      TokenType::ConstAssign => {
-        let ident: Identifier;
-        buffer.get_next();
-        if buffer.is_next() {
-          if buffer.peek_type() == Some(&TokenType::Ident) {
-            ident = match buffer.get_next().unwrap().0.value {
-              Some(Value::Ident(i)) => i,
-              x => return Err(format!("error in finding ident value of ident type. found {:?}", x))
-            }
-          } else {
-            let token = buffer.get_next().unwrap();
-            return Err(format!("expected an identifier at {} and found {:?}", token.0.span, token.1))
-          }
-        } else {
-          return Err("unexpected end of input".to_string())
-        }
-        if buffer.is_next() {
-          if buffer.peek_type() == Some(&TokenType::As) {
-            buffer.get_next();
-          } else {
-            let x = buffer.get_next().unwrap();
-            return Err(format!("expected with at {} and found {:?}", x.0.span, x.1))
-          }
-        } else {
-          return Err("unexpected end of input".to_string())
-        }
-        let expr = self.parse_expression(&mut buffer)?;
-        Ok(Statement::ConstAssignment(ConstAssignment(ident, expr)))
+      } else {
+        return Err("unexpected end of input".to_string())
       }
-      //TokenType::Function => {
-      //
-      //},
-      //TokenType::If => {
-      //
-      //},
-      //TokenType::Else => {
-      //
-      //},
-      _ => {
-        Err(format!("expected a statement at {} and found {:?}", buffer[0].span, buffer[0].ty))
+      if buffer.is_next() {
+        if buffer.peek_type() == Some(&TokenType::With) {
+          buffer.get_next();
+        } else {
+          let x = buffer.get_next().unwrap();
+          return Err(format!("expected with at {} and found {:?}", x.0.span, x.1))
+        }
+      } else {
+        return Err("unexpected end of input".to_string())
       }
+      let expr = parse_expression(&mut buffer)?;
+      Ok(Statement::Assignment(Assignment(ident, expr)))
+    },
+    TokenType::ConstAssign => {
+      let ident: Identifier;
+      buffer.get_next();
+      if buffer.is_next() {
+        if buffer.peek_type() == Some(&TokenType::Ident) {
+          ident = match buffer.get_next().unwrap().0.value {
+            Some(Value::Ident(i)) => i,
+            x => return Err(format!("error in finding ident value of ident type. found {:?}", x))
+          };
+          if let Some(span) = idents.get(&ident) {
+            return Err(format!("{} has already been defined at {}", ident, span))
+          }
+        } else {
+          let token = buffer.get_next().unwrap();
+          return Err(format!("expected an identifier at {} and found {:?}", token.0.span, token.1))
+        }
+      } else {
+        return Err("unexpected end of input".to_string())
+      }
+      if buffer.is_next() {
+        if buffer.peek_type() == Some(&TokenType::As) {
+          buffer.get_next();
+        } else {
+          let x = buffer.get_next().unwrap();
+          return Err(format!("expected with at {} and found {:?}", x.0.span, x.1))
+        }
+      } else {
+        return Err("unexpected end of input".to_string())
+      }
+      let expr = parse_expression(&mut buffer)?;
+      Ok(Statement::ConstAssignment(ConstAssignment(ident, expr)))
+    }
+    //TokenType::Function => {
+    //
+    //},
+    //TokenType::If => {
+    //
+    //},
+    //TokenType::Else => {
+    //
+    //},
+    _ => {
+      Err(format!("expected a statement at {} and found {:?}", buffer[0].span, buffer[0].ty))
     }
   }
+}
 
-  fn parse_expression(&mut self, buffer: &mut ParseBuffer) -> Result<Expression, String> {
-    // check if first token is ident, lit or invoke
-    let mut expr: Option<Expression> = None;
-    if buffer.is_next() {
-      match buffer.get_next() {
-        Some((token, TokenType::Literal)) => { 
-          expr = Some(Expression::Literal(token.value.unwrap()))
-        },
-        Some((token, TokenType::Ident)) => {
-          expr = Some(Expression::Identifier(token.value.unwrap().get_ident().unwrap()))
-        },                                                                                                                      
-        Some((_, TokenType::Invoke)) => {
-          panic!("havent done this yet fucknut")
-        },
-        Some((token, token_type)) => {
-          return Err(format!("expected a literal, identifier of function call at {} and found {:?}", token.span, token_type))
-        },
-        None => return Err("unexpected end of input".to_string())
-      };
-      while buffer.is_next() {
-        if buffer.peek_type().unwrap() == &TokenType::Field {
-          buffer.get_next();
-          match buffer.get_next() {
-            Some((token,TokenType::Ident)) => {
-              let old_expr = expr.unwrap();
-              expr = Some(Expression::Field(Box::new(old_expr), token.value.unwrap().get_ident().unwrap()))
-            },
-            Some((token, token_type)) => return Err(format!("expected an identifier at {} and found {:?}", token.span, token_type)),
-            None => return Err("unexpected end of input".to_string())
+pub fn parse_expression(buffer: &mut ParseBuffer) -> Result<Expression, String> {
+  // check if first token is ident, lit or invoke
+  let mut expr: Option<Expression> = None;
+  if buffer.is_next() {
+    match buffer.get_next() {
+      Some((token, TokenType::Literal)) => { 
+        expr = Some(Expression::Literal(token.value.unwrap()))
+      },
+      Some((token, TokenType::Ident)) => {
+        expr = Some(Expression::Identifier(token.value.unwrap().get_ident().unwrap()))
+      },                                                                                                                      
+      Some((_, TokenType::Invoke)) => {
+        panic!("havent done this yet fucknut")
+      },
+      Some((token, token_type)) => {
+        return Err(format!("expected a literal, identifier of function call at {} and found {:?}", token.span, token_type))
+      },
+      None => return Err("unexpected end of input".to_string())
+    };
+    while buffer.is_next() {
+      if buffer.peek_type().unwrap() == &TokenType::Field {
+        buffer.get_next();
+        match buffer.get_next() {
+          Some((token,TokenType::Ident)) => {
+            let old_expr = expr.unwrap();
+            expr = Some(Expression::Field(Box::new(old_expr), token.value.unwrap().get_ident().unwrap()))
+          },
+          Some((token, token_type)) => return Err(format!("expected an identifier at {} and found {:?}", token.span, token_type)),
+          None => return Err("unexpected end of input".to_string())
+        }
+      } else {
+        let operator: Operator = match buffer.get_next().unwrap() {
+          (token, TokenType::Operator) => {
+             match token.value.unwrap() {
+              Value::Operator(x) => x,
+              _ => panic!("failed to get operator from operator type")
+             }
+          },
+          (_, TokenType::Or) => {
+            Operator::Or
+          },
+          (_, TokenType::And) => {
+            Operator::And
+          },
+          (_, TokenType::Comma) => {
+            break;
           }
-        } else {
-          let operator: Operator = match buffer.get_next().unwrap() {
-            (token, TokenType::Operator) => {
-               match token.value.unwrap() {
-                Value::Operator(x) => x,
-                _ => panic!("failed to get operator from operator type")
-               }
-            },
-            (_, TokenType::Or) => {
-              Operator::Or
-            },
-            (_, TokenType::And) => {
-              Operator::And
-            },
-            (_, TokenType::Comma) => {
-              break;
+          (token, token_type) => return Err(format!("expected an operator at {} and found {:?}", token.span, token_type))
+        };
+        let value = match buffer.get_next() {
+          Some((token, TokenType::Ident)) => {
+            Expression::Identifier(token.value.unwrap().get_ident().unwrap())
+          },
+          Some((token, TokenType::Literal)) => {
+            match token.value.unwrap() {
+              Value::Ident(_) => panic!("failed to get a literal from value"),
+              x => Expression::Literal(x),
             }
-            (token, token_type) => return Err(format!("expected an operator at {} and found {:?}", token.span, token_type))
-          };
-          let value = match buffer.get_next() {
-            Some((token, TokenType::Ident)) => {
-              Expression::Identifier(token.value.unwrap().get_ident().unwrap())
-            },
-            Some((token, TokenType::Literal)) => {
-              match token.value.unwrap() {
-                Value::Ident(_) => panic!("failed to get a literal from value"),
-                x => Expression::Literal(x),
-              }
-            },
-            Some((token, token_type)) => return Err(format!("expected an identifier or literal at {} and found {:?}", token.span, token_type)),
-            None => return Err("unexpected end of input".to_string())
-          };
-          let old_expr = expr.unwrap();
-          match old_expr.clone() {
-            Expression::Literal(_) | Expression::Identifier(_) | Expression::Field(_, _) | Expression::FunctionCall(_, _) => {
-              expr = Some(Expression::op(old_expr, operator, value))
-            },
-            Expression::Operation(old_expr1, old_operator, old_expr2) => {
-              match (old_operator.get_priority(), operator.get_priority()) {
-                (OperatorPriority::AddSub, OperatorPriority::AddSub) | (OperatorPriority::AddSub, OperatorPriority::AndOr) | (OperatorPriority::AddSub, OperatorPriority::Comparitive) => {
-                  expr = Some(Expression::op(old_expr, operator, value))
-                },
-                (OperatorPriority::AddSub, OperatorPriority::MulDiv) => {
-                  expr = Some(Expression::op(*old_expr1, old_operator, Expression::op(*old_expr2, operator, value)))
-                },
-                (OperatorPriority::MulDiv, _) => {
-                  expr = Some(Expression::op(old_expr, operator, value))
-                },
-                (OperatorPriority::Comparitive, OperatorPriority::Comparitive) => {
-                  return Err("do not chain comparison operators".to_string())
-                },
-                (OperatorPriority::Comparitive, OperatorPriority::AndOr) => {
-                  expr = Some(Expression::op(old_expr, operator, value))
-                },
-                (OperatorPriority::Comparitive, _) => {
-                  expr = Some(Expression::op(*old_expr1, old_operator, Expression::op(*old_expr2, operator, value)))
-                },
-                
-                (OperatorPriority::AndOr, OperatorPriority::AndOr) => {
-                  expr = Some(Expression::op(old_expr, operator, value))
-                },
-                (OperatorPriority::AndOr, _) => {
-                  expr = Some(Expression::op(*old_expr1, old_operator, Expression::op(*old_expr2, operator, value)))
-                }
+          },
+          Some((token, token_type)) => return Err(format!("expected an identifier or literal at {} and found {:?}", token.span, token_type)),
+          None => return Err("unexpected end of input".to_string())
+        };
+        let old_expr = expr.unwrap();
+        match old_expr.clone() {
+          Expression::Literal(_) | Expression::Identifier(_) | Expression::Field(_, _) | Expression::FunctionCall(_, _) => {
+            expr = Some(Expression::op(old_expr, operator, value))
+          },
+          Expression::Operation(old_expr1, old_operator, old_expr2) => {
+            match (old_operator.get_priority(), operator.get_priority()) {
+              (OperatorPriority::AddSub, OperatorPriority::MulDiv) => {
+                expr = Some(Expression::op(*old_expr1, old_operator, Expression::op(*old_expr2, operator, value)))
+              },
+              (OperatorPriority::AddSub, _) => {
+                expr = Some(Expression::op(old_expr, operator, value))
+              },
+              (OperatorPriority::MulDiv, _) => {
+                expr = Some(Expression::op(old_expr, operator, value))
+              },
+              (OperatorPriority::Comparitive, OperatorPriority::Comparitive) => {
+                return Err("do not chain comparison operators".to_string())
+              },
+              (OperatorPriority::Comparitive, OperatorPriority::AndOr) => {
+                expr = Some(Expression::op(old_expr, operator, value))
+              },
+              (OperatorPriority::Comparitive, _) => {
+                expr = Some(Expression::op(*old_expr1, old_operator, Expression::op(*old_expr2, operator, value)))
+              },
+              
+              (OperatorPriority::AndOr, OperatorPriority::AndOr) => {
+                expr = Some(Expression::op(old_expr, operator, value))
+              },
+              (OperatorPriority::AndOr, _) => {
+                expr = Some(Expression::op(*old_expr1, old_operator, Expression::op(*old_expr2, operator, value)))
               }
             }
           }
         }
       }
-      expr.ok_or("err".to_string())
-    } else {
-      Err("unexpected end of input".to_string())
     }
+    expr.ok_or("err".to_string())
+  } else {
+    Err("unexpected end of input".to_string())
   }
 }
 
