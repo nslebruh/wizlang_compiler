@@ -2,40 +2,48 @@
 Silly language to build a lexer, parser and compiler for
 
 ## Spec
-### Basics
-Wizlang is a full stop delimited language. For example, 
-```js
-let x = "Hello world!".
-```
-is the same as
-```js
-let x = "Hello world!";
-```
-in other languages
-
-
-Everything is as verbose as possible. For example,
-```js
-let x = 1 + 2 * 3 / 4;
-if x >= 2 {
-  console.log(x, " is 2 or greater");
-} else {
-  console.log(x, " is less than 2");
-}
-```
-would be 
-```
-Imbue x as 1 plus 2 times 3 over 4.
-Should x be greater than or equal to 2, then
-  Invoke console's log, which takes x and " is 2 or greater".
-Otherwise, 
-  Invoke console's log, which takes x and " is less than 2".
-Conclude.
-```
-in Wizlang
-### Variables
-You can declare variables with the `imbue` keyword  
-```
-Imbue x with 1.
-Imbue y as "y".
-```
+$$
+\begin{align}
+  [\text{prog}] &\to [\text{stmt}]^+ \\
+  [\text{stmt}] &\to 
+  \begin{cases} 
+    declare \space \text{ident} \space as \space [\text
+    {expr}]. \\
+    imbue \space \text{ident} \space as \space [\text{expr}]. \\
+    conjure \space \text{ident}, \space which \space takes \space [[\text{ident}]\space as \space [\text{type}]]^*, \space \\ \space thusly \space containing, \space [stmt]^* \space conclude. \\
+    return \space [\text{expr}]. \\ 
+    should \space [\text{expr}], \space then \space [\text{stmt}]*
+  \end{cases} \\
+  [\text{expr}] \space &\to
+  \begin{cases}
+    [\text{lit}] \\
+    \text{ident} \\
+    [\text{expr}]'s \space \text{ident} \\
+    [\text{expr}] \space [\text{op}] \space [\text{expr}] \\
+    invoke \space [\text{expr}], \space which \space takes \space [\text{expr}]^*
+  \end{cases} \\
+  [\text{lit}] \space &\to 
+  \begin{cases}
+    \text{integer} \\
+    \text{float} \\ 
+    \text{string} \\ 
+    \text{boolean} \\
+  \end{cases} \\
+  [\text{type}] \space &\to 
+  \begin{cases}
+    \text{lit} \\ 
+    \text{custom}
+  \end{cases} \\
+  [\text{op}] \space &\to 
+  \begin{cases}
+    be \space greater \space than: &> \\
+    be \space greater \space than \space or \space equal \space to \space: &\geq \\
+    be \space less \space than: &< \\
+    be \space less \space than \space or \space equal \space to: &\leq \\
+    be \space equal \space to: &= \\
+    be \space unequal \space to: & \neq \\
+    and: & \&\& \\
+    or: & ||
+  \end{cases}
+\end{align}
+$$

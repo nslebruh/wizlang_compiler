@@ -1,12 +1,15 @@
 #[macro_use]
 mod macros;
 mod main2;
+mod main3;
+mod main4;
+mod tokens;
 
 use std::{ops::Deref, fmt::Display};
 
 use clap::Parser;
 
-use crate::main2::Lexer;
+use crate::{main2::Lexer, main4::Parser as Parser2};
 
 trait ToRust {
     fn to_rust(&self) -> String;
@@ -1117,11 +1120,18 @@ fn main() -> Result<(), String> {
     println!("Hello, world!");
     let args = Cli::parse();
     let content = std::fs::read_to_string(&args.path).unwrap_or_else(|_| panic!("could not find {}", &args.path.to_str().unwrap()));
-    let lexer = Lexer::new(content)?;
-    println!("{}", lexer.buffer);
-    let mut parser = main2::Parser::new(lexer.buffer);
+    use main4::{lexer, operator_pass};
+    let tokens = lexer(content);
+    let new_tokens = operator_pass(tokens.unwrap()).unwrap();
+    println!("{:?}", new_tokens);
+    let mut parser = Parser2::new(new_tokens);
     parser.parse()?;
-    println!("{:?}", parser.statements);
+    println!("parser: {}", parser);
+    //let lexer = Lexer::new(content)?;
+    //println!("{}", lexer.buffer);
+    //let mut parser = main2::Parser::new(lexer.buffer);
+    //parser.parse()?;
+    //println!("{:?}", parser.statements);
 
     //let tokens = string_to_tokens(content).expect("should be valid tokens");
     //for n in &tokens {

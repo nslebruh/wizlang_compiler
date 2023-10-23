@@ -582,6 +582,10 @@ impl Parser {
     }
     Ok(())
   }
+
+  pub fn semantic_analysis(&mut self) {
+    
+  }
 }
 
 pub fn parse_statement(mut buffer: ParseBuffer, idents: &HashMap<Identifier, Span>) -> Result<Statement, String> {
@@ -646,6 +650,11 @@ pub fn parse_statement(mut buffer: ParseBuffer, idents: &HashMap<Identifier, Spa
       }
       let expr = parse_expression(&mut buffer)?;
       Ok(Statement::ConstAssignment(ConstAssignment(ident, expr)))
+    },
+    TokenType::Return => {
+      buffer.get_next();
+      let expr = parse_expression(&mut buffer)?;
+      Ok(Statement::Return(expr))
     }
     //TokenType::Function => {
     //
@@ -664,7 +673,7 @@ pub fn parse_statement(mut buffer: ParseBuffer, idents: &HashMap<Identifier, Spa
 
 pub fn parse_expression(buffer: &mut ParseBuffer) -> Result<Expression, String> {
   // check if first token is ident, lit or invoke
-  let mut expr: Option<Expression> = None;
+  let mut expr: Option<Expression>;
   if buffer.is_next() {
     match buffer.get_next() {
       Some((token, TokenType::Literal)) => { 
@@ -674,7 +683,16 @@ pub fn parse_expression(buffer: &mut ParseBuffer) -> Result<Expression, String> 
         expr = Some(Expression::Identifier(token.value.unwrap().get_ident().unwrap()))
       },                                                                                                                      
       Some((_, TokenType::Invoke)) => {
-        panic!("havent done this yet fucknut")
+        panic!("havent done this yet fucknut");
+        //match buffer.get_next() {
+        //  Some((token, TokenType::Ident)) => {
+//
+        //  },
+        //  Some((token, token_type)) => {
+        //    return Err(format!("expected an identifier at {} and found {:?}", token.span, token_type))
+        //  },
+        //  None => return Err("unexpected end of input".to_string())
+        //}
       },
       Some((token, token_type)) => {
         return Err(format!("expected a literal, identifier of function call at {} and found {:?}", token.span, token_type))
@@ -788,18 +806,6 @@ impl Statement {
       Self::FunctionAssignment(_, _, _) => None
     }
   }
-
-
-  pub fn fix_priority(&mut self) {
-    if let Statement::FunctionAssignment(_, _, stmts) = self {
-      for stmt in stmts {
-        stmt.fix_priority()
-      }
-    }
-    if let Some(expr) = self.get_expression() {
-
-    }
-  }
 }
 
 #[derive(Debug, Clone)]
@@ -818,13 +824,6 @@ pub enum Expression {
 }
 
 impl Expression {
-  pub fn get_operator(&self) -> Option<Operator> {
-    match self {
-      Expression::Operation(_, op, _) => Some(op.clone()),
-      _ => None
-    }
-  }
-
   pub fn op(expr1: Expression, op: Operator, expr2: Expression) -> Self {
     Expression::Operation(Box::new(expr1), op, Box::new(expr2))
   }
