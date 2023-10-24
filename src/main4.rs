@@ -570,7 +570,7 @@ impl Parser {
     while self.buffer.is_next() {
       match self.buffer.parse() {
         Some(Token {_type: TokenType::FullStop, ..}) => {
-          self.output.push(Statement::parse(&mut stmt_buffer.clone().into(), &mut self.idents)?);
+          self.output.push(Statement::parse(&mut stmt_buffer.clone().into(), &mut self.idents, 0)?);
           stmt_buffer.clear()
         }
         Some(token) => stmt_buffer.push(token),
@@ -599,14 +599,14 @@ impl Display for Statement {
 }
 
 impl Statement {
-  pub fn parse(buffer: &mut ParseBuffer, idents: &mut HashMap<String, Span>) -> Result<Statement, String> {
+  pub fn parse(buffer: &mut ParseBuffer, idents: &mut HashMap<String, Span>, nested: u8) -> Result<Statement, String> {
     match buffer.parse() {
       Some(Token {_type: TokenType::Assignment, ..}) => {
         match buffer.parse() {
           Some(Token {_type: TokenType::Identifier(ident), ..}) => {
             match buffer.parse() {
               Some(Token {_type: TokenType::Identifier(x), ..}) if x == *"with" => {
-                let expr = Expression::parse(buffer, 0)?;
+                let expr = Expression::parse(buffer)?;
                 Ok(Statement::Assignment(ident, expr))
               },
               Some(token) => Err(format!("expected with at {} and found {}", token.span, token._type)),
@@ -622,7 +622,7 @@ impl Statement {
           Some(Token {_type: TokenType::Identifier(ident), ..}) => {
             match buffer.parse() {
               Some(Token {_type: TokenType::Identifier(x), ..}) if x == *"as" => {
-                let expr = Expression::parse(buffer, 0)?;
+                let expr = Expression::parse(buffer)?;
                 Ok(Statement::ConstAssignment(ident, expr))
               },
               Some(token) => Err(format!("expected with at {} and found {}", token.span, token._type)),
@@ -634,7 +634,7 @@ impl Statement {
         }
       },
       Some(Token {_type: TokenType::Return, ..}) => {
-        let expr = Expression::parse(buffer, 0)?;
+        let expr = Expression::parse(buffer)?;
         Ok(Statement::Return(expr))
       },
       Some(token) => Err(format!("expected imbue, declare or bestow at {} and found {}", token.span, token._type)),
@@ -672,6 +672,10 @@ impl Display for Expression {
 }
 
 impl Expression {
+  pub fn new_op(old: Expression, operator: Operator, new: Expression) -> Expression {
+    Expression::Operation(Box::new(old), operator, Box::new(new))
+  }
+
   pub fn first_expr(&self) -> Expression {
     match self {
       Expression::Operation(x, _, _) => *x.to_owned(),
@@ -693,7 +697,7 @@ impl Expression {
     }
   }
 
-  pub fn parse(buffer: &mut ParseBuffer, nested: u8) -> Result<Expression, String> {
+  pub fn parse(buffer: &mut ParseBuffer) -> Result<Expression, String> {
     let mut expr = match buffer.parse() {
       Some(Token {_type: TokenType::Literal(x), ..}) => Expression::Literal(x),
       Some(Token {_type: TokenType::Identifier(x), ..}) => Expression::Identifier(x),
@@ -724,28 +728,29 @@ impl Expression {
               Some(token) => return Err(format!("expected an identifier or literal at {} and found {}", token.span, token._type)),
               None => return Err("unexpected end of input".to_string())
             };
-            let old_expr = expr.clone();
-            if let Expression::Operation(x, y, z) = old_expr.clone() {
-              match (y.priority(), operator.priority()) {
-                (OperatorPriority::AddSub, OperatorPriority::MulDiv) => {
-                  expr = Expression::Operation(x, y, Box::new(Expression::Operation(z, operator, Box::new(next))))
-                },
-                (OperatorPriority::AddSub | OperatorPriority::MulDiv, _) => {
-                  expr = Expression::Operation(Box::new(old_expr), operator, Box::new(next))
-                },
-                (OperatorPriority::Eq, OperatorPriority::Eq) => {
-                  return Err("do not chain comparison operators".to_string())
-                },
-                (OperatorPriority::Eq | OperatorPriority::AndOr, OperatorPriority::AndOr) => {
-                  expr = Expression::Operation(Box::new(old_expr), operator, Box::new(next))
-                },
-                (OperatorPriority::Eq | OperatorPriority::AndOr, _) => {
-                  expr = Expression::Operation(x, y, Box::new(Expression::Operation(z, operator, Box::new(next))))
-                }
-              }
-            } else {
-              expr = Expression::Operation(Box::new(old_expr), operator, Box::new(next))
-            }
+            expr = Expression::create_operation(expr.clone(), operator, next)?;
+            //let old_expr = expr.clone();
+            //if let Expression::Operation(x, y, z) = old_expr.clone() {
+            //  match (y.priority(), operator.priority()) {
+            //    (OperatorPriority::AddSub, OperatorPriority::MulDiv) => {
+            //      expr = Expression::Operation(x, y, Box::new(Expression::Operation(z, operator, Box::new(next))))
+            //    },
+            //    (OperatorPriority::AddSub | OperatorPriority::MulDiv, _) => {
+            //      expr = Expression::Operation(Box::new(old_expr), operator, Box::new(next))
+            //    },
+            //    (OperatorPriority::Eq, OperatorPriority::Eq) => {
+            //      return Err("do not chain comparison operators".to_string())
+            //    },
+            //    (OperatorPriority::Eq | OperatorPriority::AndOr, OperatorPriority::AndOr) => {
+            //      expr = Expression::Operation(Box::new(old_expr), operator, Box::new(next))
+            //    },
+            //    (OperatorPriority::Eq | OperatorPriority::AndOr, _) => {
+            //      expr = Expression::Operation(x, y, Box::new(Expression::Operation(z, operator, Box::new(next))))
+            //    }
+            //  }
+            //} else {
+            //  expr = Expression::Operation(Box::new(old_expr), operator, Box::new(next))
+            //}
           }
           Some(_) => break,
           None => return Err("unexpected end of input".to_string())
@@ -754,43 +759,29 @@ impl Expression {
     }
     Ok(expr)
   }
+
+  fn create_operation(old: Expression, operator: Operator, new: Expression) -> Result<Expression, String> {
+    let output: Expression = match &old {
+      Expression::Operation(old1, old_op, old2) => {
+        use OperatorPriority as op;
+        match (old_op.priority(), &operator.priority()) {
+          (op::AddSub, op::MulDiv) => Expression::Operation(old1.clone(), *old_op, Box::new(Self::create_operation(*old2.clone(), operator, new)?)),
+          (op::AddSub, _) | (op::MulDiv, _) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::Eq, op::Eq) => return Err("do not chain comparison operators".to_string()),
+          (op::Eq, op::AndOr) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::Eq, _) => Expression::new_op(*old1.to_owned(), *old_op, Expression::new_op(*old2.to_owned(), operator, new)),
+          (op::AndOr, op::AndOr) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::AndOr, _) => Expression::new_op(*old1.to_owned(), *old_op, Self::create_operation(*old2.to_owned(), operator, new)?),
+      }
+      },
+      _ => {
+        Expression::Operation(Box::new(old), operator, Box::new(new))
+      }
+    };
+    Ok(output)
+  }
 }
 
-fn create_operation(old: Expression, operator: Operator, new: Expression) -> Result<Expression, String> {
-  let output: Expression = match &old {
-    Expression::Operation(x, y, z) => {
-      let mut op = y.to_owned();
-      let mut expr: Expression = *z.to_owned();
-      while op.priority() == OperatorPriority::AndOr {
-          expr = expr.last_expr();
-          op = expr.op();
-      }
-      match (op.priority(), operator.priority()) {
-        (OperatorPriority::AndOr, OperatorPriority::AndOr) => todo!(),
-        (OperatorPriority::AndOr, OperatorPriority::AddSub) => todo!(),
-        (OperatorPriority::AndOr, OperatorPriority::MulDiv) => todo!(),
-        (OperatorPriority::AndOr, OperatorPriority::Eq) => todo!(),
-        (OperatorPriority::AddSub, OperatorPriority::AndOr) => todo!(),
-        (OperatorPriority::AddSub, OperatorPriority::AddSub) => todo!(),
-        (OperatorPriority::AddSub, OperatorPriority::MulDiv) => todo!(),
-        (OperatorPriority::AddSub, OperatorPriority::Eq) => todo!(),
-        (OperatorPriority::MulDiv, OperatorPriority::AndOr) => todo!(),
-        (OperatorPriority::MulDiv, OperatorPriority::AddSub) => todo!(),
-        (OperatorPriority::MulDiv, OperatorPriority::MulDiv) => todo!(),
-        (OperatorPriority::MulDiv, OperatorPriority::Eq) => todo!(),
-        (OperatorPriority::Eq, OperatorPriority::AndOr) => todo!(),
-        (OperatorPriority::Eq, OperatorPriority::AddSub) => todo!(),
-        (OperatorPriority::Eq, OperatorPriority::MulDiv) => todo!(),
-        (OperatorPriority::Eq, OperatorPriority::Eq) => todo!(),
-    }
-      Expression::Operation(Box::new(old), operator, Box::new(new))
-    },
-    _ => {
-      Expression::Operation(Box::new(old), operator, Box::new(new))
-    }
-  };
-  Ok(output)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Operator {
