@@ -73,46 +73,38 @@ impl ParseBuffer {
     token
   }
 
-  pub fn parse_unchecked(&mut self) -> Token {
-    let token = self.parse();
-    if let Some(x) = token {
-      x
-    } else {
-      panic!("end of tokens bozo")
-    }
-  }
+  //pub fn parse_unchecked(&mut self) -> Token {
+  //  let token = self.parse();
+  //  if let Some(x) = token {
+  //    x
+  //  } else {
+  //    panic!("end of tokens bozo")
+  //  }
+  //}
 
   pub fn peek(&self) -> Option<&Token> {
     self.get(self.index)
   }
 
-  pub fn peek2(&self) -> Option<&Token> {
-    self.get(self.index + 1)
-  }
+  //pub fn peek2(&self) -> Option<&Token> {
+  //  self.get(self.index + 1)
+  //}
 
-  pub fn peek3(&self) -> Option<&Token> {
-    self.get(self.index + 2)
-  }
-
-  pub fn peek_n(&self, n: usize) -> Option<&Token> {
-    self.get(self.index + n)
-  }
+  //pub fn peek3(&self) -> Option<&Token> {
+  //  self.get(self.index + 2)
+  //}
 
   pub fn peek_type(&self) -> Option<TokenType> {
     self.get(self.index).map(|token| token._type.clone())
   }
 
-  pub fn peek2_type(&self) -> Option<TokenType> {
-    self.get(self.index + 1).map(|token| token._type.clone())
-  }
+  //pub fn peek2_type(&self) -> Option<TokenType> {
+  //  self.get(self.index + 1).map(|token| token._type.clone())
+  //}
 
-  pub fn peek3_type(&self) -> Option<TokenType> {
-    self.get(self.index + 2).map(|token| token._type.clone())
-  }
-
-  pub fn peek_n_type(&self, n: usize) -> Option<TokenType> {
-    self.get(self.index + n).map(|token| token._type.clone())
-  }
+  //pub fn peek3_type(&self) -> Option<TokenType> {
+  //  self.get(self.index + 2).map(|token| token._type.clone())
+  //}
 
   pub fn contains(&self, tt: TokenType) -> bool {
     for n in &self.inner {
@@ -160,7 +152,6 @@ pub enum TokenType {
   If,
   Else,
   FunctionCall,
-  Field,
   Conclude,
   Becometh,
   Struct,
@@ -188,7 +179,6 @@ impl Display for TokenType {
             TokenType::If => String::from("Should"),
             TokenType::Else => String::from("Otherwise"),
             TokenType::FunctionCall => String::from("Invoke"),
-            TokenType::Field => String::from("'s"),
             TokenType::Conclude => String::from("Conclude"),
             TokenType::Becometh => String::from("becometh"),
             TokenType::Struct => String::from("Envision"),
@@ -387,7 +377,7 @@ pub fn lexer(input: impl Into<String>) -> Result<ParseBuffer, String> {
             buf.push(source_vec[idx]);
             len += 1;
             idx += 1;
-            output.push(Token::new(TokenType::Field, Span::new(bol, lnum, cnum, len)));
+            output.push(Token::new(TokenType::Operator(Operator::Field), Span::new(bol, lnum, cnum, len)));
             buf.clear()
           } else {
             return Err(format!("expected s at {} and found {}", idx, source_vec[idx]))
@@ -586,6 +576,7 @@ pub enum Statement {
   Assignment(String, Expression),
   ConstAssignment(String, Expression),
   Return(Expression),
+
 }
 
 impl Display for Statement {
@@ -603,10 +594,15 @@ impl Statement {
     match buffer.parse() {
       Some(Token {_type: TokenType::Assignment, ..}) => {
         match buffer.parse() {
-          Some(Token {_type: TokenType::Identifier(ident), ..}) => {
+          Some(Token {_type: TokenType::Identifier(ident), span: ident_span}) => {
+            if let Some(x) = idents.get(&ident) {
+              return Err(format!("identifier {} at {} is already defined at {}", ident, ident_span, x))
+            } else {
+              idents.insert(ident.clone(), ident_span);
+            }
             match buffer.parse() {
               Some(Token {_type: TokenType::Identifier(x), ..}) if x == *"with" => {
-                let expr = Expression::parse(buffer)?;
+                let expr = Expression::parse(buffer, 0)?;
                 Ok(Statement::Assignment(ident, expr))
               },
               Some(token) => Err(format!("expected with at {} and found {}", token.span, token._type)),
@@ -619,10 +615,15 @@ impl Statement {
       },
       Some(Token {_type: TokenType::ConstAssignment, ..}) => {
         match buffer.parse() {
-          Some(Token {_type: TokenType::Identifier(ident), ..}) => {
+          Some(Token {_type: TokenType::Identifier(ident), span: ident_span}) => {
+            if let Some(x) = idents.get(&ident) {
+              return Err(format!("identifier {} at {} is already defined at {}", ident, ident_span, x))
+            } else {
+              idents.insert(ident.clone(), ident_span);
+            }
             match buffer.parse() {
               Some(Token {_type: TokenType::Identifier(x), ..}) if x == *"as" => {
-                let expr = Expression::parse(buffer)?;
+                let expr = Expression::parse(buffer, 0)?;
                 Ok(Statement::ConstAssignment(ident, expr))
               },
               Some(token) => Err(format!("expected with at {} and found {}", token.span, token._type)),
@@ -634,7 +635,7 @@ impl Statement {
         }
       },
       Some(Token {_type: TokenType::Return, ..}) => {
-        let expr = Expression::parse(buffer)?;
+        let expr = Expression::parse(buffer, 0)?;
         Ok(Statement::Return(expr))
       },
       Some(token) => Err(format!("expected imbue, declare or bestow at {} and found {}", token.span, token._type)),
@@ -646,17 +647,15 @@ impl Statement {
 #[derive(Debug, Clone)]
 pub enum Expression {
   Literal(Literal),
-  Field(Box<Expression>, String),
   Identifier(String),
   Operation(Box<Expression>, Operator, Box<Expression>),
-  FunctionCall(String, Vec<Expression>)
+  FunctionCall(Box<Expression>, Vec<Expression>)
 }
 
 impl Display for Expression {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
           Expression::Literal(x) => write!(f, "{x}"),
-          Expression::Field(x, y) => write!(f, "{}'s {}", x, y),
           Expression::Identifier(x) => write!(f, "{x}"),
           Expression::Operation(x, y, z) => write!(f, "({} {} {})", x, y, z),
           Expression::FunctionCall(x, y) => {
@@ -676,85 +675,57 @@ impl Expression {
     Expression::Operation(Box::new(old), operator, Box::new(new))
   }
 
-  pub fn first_expr(&self) -> Expression {
+  pub fn is_identifier(&self) -> bool {
     match self {
-      Expression::Operation(x, _, _) => *x.to_owned(),
-      _ => panic!("nuh uh")
+      Expression::Identifier(_) => true,
+      Expression::Operation(_, Operator::Field, y) => Self::is_identifier(y),
+      _ => false
     }
   }
 
-  pub fn last_expr(&self) -> Expression {
-    match self {
-      Expression::Operation(_, _, x) => *x.to_owned(),
-      _ => panic!("nuh uh")
-    }
-  }
-
-  pub fn op(&self) -> Operator {
-    match self {
-      Expression::Operation(_, x, _) => x.to_owned(),
-      _ => panic!("nuh uh")
-    }
-  }
-
-  pub fn parse(buffer: &mut ParseBuffer) -> Result<Expression, String> {
+  pub fn parse(buffer: &mut ParseBuffer, nested: u8) -> Result<Expression, String> {
     let mut expr = match buffer.parse() {
       Some(Token {_type: TokenType::Literal(x), ..}) => Expression::Literal(x),
       Some(Token {_type: TokenType::Identifier(x), ..}) => Expression::Identifier(x),
       Some(Token {_type: TokenType::FunctionCall, ..}) => {
-        todo!()
+        if nested > 1 {
+          return Err("do not nest more than 1 function call inside another function call".to_string())
+        }
+        let identifier: Expression = Self::parse(buffer, 2)?;
+        if !identifier.is_identifier() {
+          return Err(format!("{} is not a valid function identifier", identifier))
+        }
+        todo!();
+
       },
       Some(token) => return Err(format!("expected an identifier, literal or invoke at {} and found {}", token.span, token._type)),
       None => return Err("unexpected end of input".to_string())
     };
     while buffer.is_next() {
-      if buffer.peek_type() == Some(TokenType::Field) {
-        buffer.parse();
-        match buffer.parse() {
-          Some(Token {_type: TokenType::Identifier(x), ..}) => {
-            let old_expr = expr.clone();
-            expr = Expression::Field(Box::new(old_expr), x)
-          }
-          Some(token) => return Err(format!("expected an identifier at {} and found {}", token.span, token._type)),
-          None => return Err("unexpected end of input".to_string())
+      //if buffer.peek_type() == Some(TokenType::Field) {
+      //  buffer.parse();
+      //  match buffer.parse() {
+      //    Some(Token {_type: TokenType::Identifier(x), ..}) => {
+      //      let old_expr = expr.clone();
+      //      expr = Expression::Field(Box::new(old_expr), x)
+      //    }
+      //    Some(token) => return Err(format!("expected an identifier at {} and found {}", token.span, token._type)),
+      //    None => return Err("unexpected end of input".to_string())
+      //  }
+      // else 
+      match buffer.peek_type() {
+        Some(TokenType::Operator(operator)) => {
+          buffer.parse();
+          let next: Expression = match buffer.parse() {
+            Some(Token {_type: TokenType::Literal(x), ..}) => Expression::Literal(x),
+            Some(Token {_type: TokenType::Identifier(x), ..}) => Expression::Identifier(x),
+            Some(token) => return Err(format!("expected an identifier or literal at {} and found {}", token.span, token._type)),
+            None => return Err("unexpected end of input".to_string())
+          };
+          expr = Expression::create_operation(expr.clone(), operator, next)?;
         }
-      } else {
-        match buffer.peek_type() {
-          Some(TokenType::Operator(operator)) => {
-            buffer.parse();
-            let next: Expression = match buffer.parse() {
-              Some(Token {_type: TokenType::Literal(x), ..}) => Expression::Literal(x),
-              Some(Token {_type: TokenType::Identifier(x), ..}) => Expression::Identifier(x),
-              Some(token) => return Err(format!("expected an identifier or literal at {} and found {}", token.span, token._type)),
-              None => return Err("unexpected end of input".to_string())
-            };
-            expr = Expression::create_operation(expr.clone(), operator, next)?;
-            //let old_expr = expr.clone();
-            //if let Expression::Operation(x, y, z) = old_expr.clone() {
-            //  match (y.priority(), operator.priority()) {
-            //    (OperatorPriority::AddSub, OperatorPriority::MulDiv) => {
-            //      expr = Expression::Operation(x, y, Box::new(Expression::Operation(z, operator, Box::new(next))))
-            //    },
-            //    (OperatorPriority::AddSub | OperatorPriority::MulDiv, _) => {
-            //      expr = Expression::Operation(Box::new(old_expr), operator, Box::new(next))
-            //    },
-            //    (OperatorPriority::Eq, OperatorPriority::Eq) => {
-            //      return Err("do not chain comparison operators".to_string())
-            //    },
-            //    (OperatorPriority::Eq | OperatorPriority::AndOr, OperatorPriority::AndOr) => {
-            //      expr = Expression::Operation(Box::new(old_expr), operator, Box::new(next))
-            //    },
-            //    (OperatorPriority::Eq | OperatorPriority::AndOr, _) => {
-            //      expr = Expression::Operation(x, y, Box::new(Expression::Operation(z, operator, Box::new(next))))
-            //    }
-            //  }
-            //} else {
-            //  expr = Expression::Operation(Box::new(old_expr), operator, Box::new(next))
-            //}
-          }
-          Some(_) => break,
-          None => return Err("unexpected end of input".to_string())
-        }
+        Some(_) => break,
+        None => return Err("unexpected end of input".to_string())
       }
     }
     Ok(expr)
@@ -766,13 +737,38 @@ impl Expression {
         use OperatorPriority as op;
         match (old_op.priority(), &operator.priority()) {
           (op::AddSub, op::MulDiv) => Expression::Operation(old1.clone(), *old_op, Box::new(Self::create_operation(*old2.clone(), operator, new)?)),
-          (op::AddSub, _) | (op::MulDiv, _) => Expression::Operation(Box::new(old), operator, Box::new(new)),
-          (op::Eq, op::Eq) => return Err("do not chain comparison operators".to_string()),
+          (op::AddSub, op::AndOr) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::AddSub, op::AddSub) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::AddSub, op::Eq) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::AddSub, op::Field) => Expression::Operation(old1.clone(), *old_op, Box::new(Self::create_operation(*old2.clone(), operator, new)?)),
+          (op::MulDiv, op::AndOr) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::MulDiv, op::AddSub) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::MulDiv, op::MulDiv) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::MulDiv, op::Eq) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::MulDiv, op::Field) => Expression::Operation(old1.clone(), *old_op, Box::new(Self::create_operation(*old2.clone(), operator, new)?)),
           (op::Eq, op::AndOr) => Expression::Operation(Box::new(old), operator, Box::new(new)),
-          (op::Eq, _) => Expression::new_op(*old1.to_owned(), *old_op, Expression::new_op(*old2.to_owned(), operator, new)),
+          (op::Eq, op::AddSub) => Expression::new_op(*old1.to_owned(), *old_op, Expression::new_op(*old2.to_owned(), operator, new)),
+          (op::Eq, op::MulDiv) => Expression::new_op(*old1.to_owned(), *old_op, Expression::new_op(*old2.to_owned(), operator, new)),
+          (op::Eq, op::Eq) => return Err("do not chain comparison operators".to_string()),
+          (op::Eq, op::Field) => Expression::new_op(*old1.to_owned(), *old_op, Expression::new_op(*old2.to_owned(), operator, new)),
+          (op::Field, op::AndOr) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::Field, op::AddSub) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::Field, op::MulDiv) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::Field, op::Eq) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          (op::Field, op::Field) => Expression::Operation(Box::new(old), operator, Box::new(new)),
           (op::AndOr, op::AndOr) => Expression::Operation(Box::new(old), operator, Box::new(new)),
-          (op::AndOr, _) => Expression::new_op(*old1.to_owned(), *old_op, Self::create_operation(*old2.to_owned(), operator, new)?),
-      }
+          (op::AndOr, op::AddSub) => Expression::new_op(*old1.to_owned(), *old_op,  Self::create_operation(*old2.to_owned(), operator, new)?),
+          (op::AndOr, op::MulDiv) => Expression::new_op(*old1.to_owned(), *old_op,  Self::create_operation(*old2.to_owned(), operator, new)?),
+          (op::AndOr, op::Eq) => Expression::new_op(*old1.to_owned(), *old_op,  Self::create_operation(*old2.to_owned(), operator, new)?),
+          (op::AndOr, op::Field) => Expression::new_op(*old1.to_owned(), *old_op,  Self::create_operation(*old2.to_owned(), operator, new)?),
+          //(op::AddSub, op::MulDiv) => Expression::Operation(old1.clone(), *old_op, Box::new(Self::create_operation(*old2.clone(), operator, new)?)),
+          //(op::AddSub, _) | (op::MulDiv, _) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          //(op::Eq, op::Eq) => return Err("do not chain comparison operators".to_string()),
+          //(op::Eq, op::AndOr) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          //(op::Eq, _) => Expression::new_op(*old1.to_owned(), *old_op, Expression::new_op(*old2.to_owned(), operator, new)),
+          //(op::AndOr, op::AndOr) => Expression::Operation(Box::new(old), operator, Box::new(new)),
+          //(op::AndOr, _) => Expression::new_op(*old1.to_owned(), *old_op,  Self::create_operation(*old2.to_owned(), operator, new)?),
+        }
       },
       _ => {
         Expression::Operation(Box::new(old), operator, Box::new(new))
@@ -796,7 +792,8 @@ pub enum Operator {
   Add,
   Sub,
   Mul,
-  Div
+  Div,
+  Field
 }
 
 impl Display for Operator {
@@ -814,6 +811,7 @@ impl Display for Operator {
             Operator::Sub => String::from("minus"),
             Operator::Mul => String::from("times"),
             Operator::Div => String::from("over"),
+            Operator::Field => String::from("'s")
         };
         write!(f, "{}", string)
     }
@@ -827,6 +825,7 @@ impl Operator {
       o::Add | o::Sub => op::AddSub,
       o::Mul | o::Div => op::MulDiv,
       o::And | o::Or => op::AndOr,
+      o::Field => op::Field,
       _ => op::Eq
     }
   }
@@ -837,5 +836,6 @@ enum OperatorPriority {
   AndOr,
   AddSub,
   MulDiv,
-  Eq
+  Eq,
+  Field
 }

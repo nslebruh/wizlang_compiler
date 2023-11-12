@@ -1123,7 +1123,7 @@ fn main() -> Result<(), String> {
     use main4::{lexer, operator_pass};
     let tokens = lexer(content);
     let new_tokens = operator_pass(tokens.unwrap()).unwrap();
-    println!("{:?}", new_tokens);
+    //println!("{:?}", new_tokens);
     let mut parser = Parser2::new(new_tokens);
     parser.parse()?;
     println!("parser: {}", parser);
