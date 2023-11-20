@@ -73,14 +73,14 @@ impl ParseBuffer {
     token
   }
 
-  //pub fn parse_unchecked(&mut self) -> Token {
-  //  let token = self.parse();
-  //  if let Some(x) = token {
-  //    x
-  //  } else {
-  //    panic!("end of tokens bozo")
-  //  }
-  //}
+  pub fn parse_unchecked(&mut self) -> Token {
+    let token = self.parse();
+    if let Some(x) = token {
+      x
+    } else {
+      panic!("end of tokens bozo")
+    }
+  }
 
   pub fn peek(&self) -> Option<&Token> {
     self.get(self.index)
@@ -681,6 +681,53 @@ impl Expression {
       Expression::Operation(_, Operator::Field, y) => Self::is_identifier(y),
       _ => false
     }
+  }
+
+  /// parse the literal, identifier, function call or field of an expression
+  /// will error if unsuccessful 
+  /// returns Ok(None) if a comma is found
+  fn parse_first(buffer: &mut ParseBuffer) -> Result<Expression, String> {
+    let mut output: Expression = match buffer.parse() {
+      Some(Token { _type: TokenType::Literal(x), .. }) => {
+        Expression::Literal(x)
+      },
+      Some(Token { _type: TokenType::Identifier(x), .. }) => {
+        Expression::Identifier(x)
+      },
+      Some(Token { _type: TokenType::FunctionCall, span }) => {
+        let ident = Self::parse_first(buffer)?;
+        todo!()
+      },
+      Some(x) => return Err(format!("expected either an identifier, literal, function call or comma at {} and found {}", x.span, x._type)),
+      None => return Err("unexpected end of input".to_string())
+    };
+    if let Some(TokenType::Operator(Operator::Field)) = buffer.peek_type() {
+      let field = buffer.parse_unchecked();
+      if let x = Self::parse_first(buffer)? {
+        if x.is_identifier() {
+          let old = output.clone();
+          output = Expression::Operation(Box::new(old), Operator::Field, Box::new(x));
+        } else {
+          return Err("expected an identifier or field".to_string())
+        }
+      } else {
+        return Err(format!("expected an identifier or field after {} and found comma", field.span))
+      }
+    }
+    Ok(output)
+  }
+
+  fn parse_operator(buffer: &mut ParseBuffer) -> Result<Option<Operator>, String> {
+    match buffer.parse() {
+      Some(Token { _type: TokenType::Comma, .. }) => Ok(None),
+      Some(Token { _type: TokenType::Operator(x), .. }) => Ok(Some(x)),
+      Some(x) => Err(format!("expected an operator or comma at {} and found {}", x.span, x._type)),
+      None => Err("unexpected end of input".to_string())
+    }
+  }
+
+  pub fn parse2(buffer: &mut ParseBuffer, nested: u8) -> Result<Expression, String> {
+    let mut expr = Self::parse_first(buffer)?;
   }
 
   pub fn parse(buffer: &mut ParseBuffer, nested: u8) -> Result<Expression, String> {
